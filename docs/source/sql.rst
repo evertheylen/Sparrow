@@ -12,7 +12,7 @@ Shorter example::
 
     u = await User.get(User.mail == Unsafe(usermail)).single(db)
 
-For preprocessing a query, you can translate it into `RawSql`, this is faster::
+For preprocessing a query, you can translate it into ``RawSql``, this is faster::
 
     users_query = User.get(User.mail == Field("mail")).to_raw()
     users = await users_query.with_data(mail = usermail).all(db)

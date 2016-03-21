@@ -3,7 +3,7 @@
  Basic usage
 =============
 
-Define some classes and create a `SparrowModel`::
+Define some classes and create a ``SparrowModel``::
 
     from sparrow import *
     
@@ -29,4 +29,4 @@ Define some classes and create a `SparrowModel`::
 Dependencies
 ============
 
-Sparrow depends on `psycopg2` and `momoko`. The examples may use Tornado for an ioloop, but this is not required.
+Sparrow depends on ``psycopg2`` and ``momoko``. The examples may use Tornado for an ioloop, but this is not required.

@@ -11,7 +11,7 @@ dependencies:
 - xz=5.0.5=1
 - zlib=1.2.8=0
 - pip:
-  - momoko==2.2.3
-  - psycopg2==2.6.1
+  - momoko>=2.2.3
+  - psycopg2>=2.6.1
   - tornado==4.3
 

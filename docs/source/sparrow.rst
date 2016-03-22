@@ -29,4 +29,6 @@ Define some classes and create a ``SparrowModel``::
 Dependencies
 ============
 
-Sparrow depends on ``psycopg2`` and ``momoko``. The examples may use Tornado for an ioloop, but this is not required.
+Sparrow depends on ``psycopg2`` and ``momoko``. The examples may use Tornado for an ioloop, but this is not directly required. However, ``momoko`` depends on Tornado.
+
+Changing the underlying database library (and async wrapper) should not be too difficult.

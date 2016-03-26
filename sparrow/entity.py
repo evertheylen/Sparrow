@@ -376,7 +376,8 @@ class MetaEntity(type):
                 
             dct["_refs"] = refs
             
-            def __metainit__(obj, db_args=None, **kwargs):
+            def __metainit__(obj, db_args=None, json_dict=None, **kwargs):
+                # TODO document and test three ways of initialisation
                 if db_args is not None:
                     # Init from a simple list/tuple
                     obj.in_db = True
@@ -388,10 +389,30 @@ class MetaEntity(type):
                         obj.__dict__[p.dataname] = val
                     for (i, p) in enumerate(init_raw_ref_properties, len(init_properties)):
                         obj.__dict__[p.dataname] = db_args[i]
+                elif json_dict is not None:
+                    # Init from a (more raw) dictionary, possibly unsafe
+                    for (p, constrained) in init_properties:
+                        if p.json and p.name in json_dict:
+                            val = json_dict[p.name]
+                        else:
+                            if p.required:
+                                raise KeyError("Didn't find property {} in json_dict".format(p.name))
+                            else:
+                                val = None
+                        if constrained and (not p.constraint(val)):
+                            raise PropertyConstraintFail(obj, p.name)
+                        obj.__dict__[p.dataname] = val
+                    for p in init_raw_ref_properties:
+                        if p.json:
+                            obj.__dict__[p.dataname] = json_dict[p.name]
+                        else:
+                            if p.required:
+                                raise KeyError("Didn't find property {} in json_dict".format(p.name))
+                            else:
+                                obj.__dict__[p.dataname] = None
                 else:
                     obj.in_db = False
                     for (p, constrained) in init_properties:
-                        val = None
                         try:
                             val = kwargs[p.name]
                         except KeyError as e:
@@ -556,11 +577,16 @@ class Entity(metaclass=MetaEntity):
         return d
     
     def __eq__(self, other):
-        return type(self) == type(other) and self.key == other.key
+        # Yay caching
+        return self is other
     
     def __hash__(self):
-        return hash(type(self)) + hash(self.key)
+        # Yay caching
+        return id(self)
      
+    def __str__(self):
+        return type(self).__name__ + str(self.key) if isinstance(self.key, tuple) else "(" + str(self.key) + ")"
+
 
 class Listener:
     """Interface for a listener to be used with `RTEntity`. Main use is documentation,

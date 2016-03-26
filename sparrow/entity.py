@@ -102,6 +102,7 @@ class Key(Queryable):
     A reference to other properties that define the key of this object.
     """
     def __init__(self, *props):
+        self.orig_props = props
         self.props = props
         self.single_prop = None
     

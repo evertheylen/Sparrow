@@ -6,6 +6,13 @@ from .util import *
 from .sql import *
 from .entity import *
 
+# Helpers
+# =======
+
+def indent(s, i=4):
+    lines = s.split("\n")
+    return "\n".join([(" "*i) + l for l in lines])
+
 # Central class
 # =============
 
@@ -29,13 +36,16 @@ class SparrowModel:
     def all_sql_statements(self):
         """Return all `Sql` statements that have been added or are automatically generated."""
         for c in self.classes:
-            yield c._create_table_command
-            yield c._drop_table_command
-            yield c._insert_command
-            yield c._update_command
-            yield c._delete_command
-            yield c._find_by_key_query
+            yield from self.sql_for_class(c)
         yield from self.sql_statements
+    
+    def sql_for_class(self, cls):
+        yield cls._create_table_command
+        yield cls._drop_table_command
+        yield cls._insert_command
+        yield cls._update_command
+        yield cls._delete_command
+        yield cls._find_by_key_query
     
     async def install(self):
         """Set up database, only once for each "install" of the model"""
@@ -49,39 +59,60 @@ class SparrowModel:
         
     def sql_info(self):
         """Print all sql statements."""
-        for s in self.all_sql_statements():
-            print(str(s))
-            print("\n----------------\n")
+        print("\n")
+        print("All (logged) SQL statements")
+        print("===========================")
+        for c in self.classes:
+            s = "Statements for object type '{}'".format(c.__name__)
+            print("\n\n" + s)
+            print("-"*len(s), end="\n\n")
+            for s in self.sql_for_class(c):
+                print(str(s), end="\n\n")
+        
+        # TODO more categorizing
+        print("Uncategorized statements")
+        print("------------------------\n")
+        for s in self.sql_statements:
+            print(str(s), end="\n\n")
     
     def json_info(self):
+        print("\n")
         print("Automatically generated JSON definitions")
         print("========================================")
         for c in self.classes:
             s = "Definition for object type '{}'".format(c.__name__)
-            print("\n" + s)
-            print("-"*len(s))
-            d = OrderedDict()
-            for p in c._json_props:
-                d[p.name] = str(p.type)
-                
-            print(json.dumps(d, indent=4))
+            print("\n\n" + s)
+            print("-"*len(s), end="\n\n")
+            
+            if c.json_repr is Entity.json_repr:
+                d = OrderedDict()
+                for p in c._json_props:
+                    d[p.name] = str(p.type)
+                    
+                print(indent(json.dumps(d, indent=4)))
+            else:
+                print("Definition is custom!")
+                if hasattr(c.json_repr, "__doc__"):
+                    print("The documentation says: " + c.json_repr.__doc__)
             
             print("\nKey properties are (might not be in definition): " + ", ".join([
                 p.name for p in c.key.referencing_props()]))
             
-            refs = []
-            for p in c.key.props:
-                if isinstance(c, Reference):
-                    refs.append(p)
-            
-            if len(refs) > 0:
-                assert len(refs) == 1, "Multiple references in key not yet supported"
-                print("\nYou should also mention a 'for' attribute:")
-                ref = refs[0]
-                fordct = OrderedDict([("what", ref.ref.__name__)])
-                for p in ref.ref.referencing_props():
-                    fordct[p.name] = "<...>"
-                print("for: " + json.dumps(fordct, indent=4))
+            if isinstance(c.key, Key) and not isinstance(c.key, Property):
+                refs = []
+                for p in c.key.orig_props:
+                    if isinstance(p, Reference) or isinstance(p, SingleReference):
+                        refs.append(p)
+                
+                if len(refs) > 0:
+                    assert len(refs) == 1, "Multiple references in key not yet supported"
+                    print('\nYou should also mention a "for" attribute:\n')
+                    ref = refs[0]
+                    fordct = OrderedDict([("what", ref.ref.__name__)])
+                    for p in ref.ref.key.referencing_props():
+                        fordct[p.name] = str(p.type)
+                    print(indent('"for": ' + json.dumps(fordct, indent=4)))
+        print("")
                     
 
 

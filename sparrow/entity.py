@@ -332,6 +332,7 @@ class MetaEntity(type):
         return collections.OrderedDict()
 
     def __new__(self, name, bases, dct):
+        # TODO allow inheritance?
         ordered_props = [k for (k, v) in dct.items()
                 if isinstance(v, Property) and not k == "key"]
         

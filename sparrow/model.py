@@ -1,7 +1,9 @@
 
+import json
+
 from .util import *
 from .sql import *
-
+from .entity import *
 
 # Central class
 # =============
@@ -44,10 +46,41 @@ class SparrowModel:
         for c in self.classes:
             await c._drop_table_command.exec(self.db)
         
-    def info(self):
+    def sql_info(self):
         """Print all sql statements."""
         for s in self.all_sql_statements():
             print(str(s))
             print("\n----------------\n")
+    
+    def json_info(self):
+        print("Automatically generated JSON definitions")
+        print("========================================")
+        for c in self.classes:
+            s = "Definition for object type '{}'".format(c.__name__)
+            print("\n" + s)
+            print("-"*len(s))
+            d = {}
+            for p in c._json_props:
+                d[p.name] = "<...>"
+                
+            print(json.dumps(d, indent=4))
+            
+            print("\nKey properties are (might not be in definition): " + ", ".join([
+                p.name for p in key.referencing_props()]))
+            
+            refs = []
+            for p in c.key.props:
+                if isinstance(c, Reference):
+                    refs.append(p)
+            
+            if len(refs) > 0:
+                assert len(refs) == 1, "Multiple references in key not yet supported"
+                print("\nYou should also mention a 'for' attribute:")
+                ref = refs[0]
+                fordct = {"what": ref.ref.__name__}
+                for p in ref.ref.referencing_props():
+                    fordct[p.name] = "<...>"
+                print("for: " + json.dumps(fordct, indent=4))
+                    
 
 

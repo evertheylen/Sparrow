@@ -39,7 +39,7 @@ class SparrowModel:
         for c in self.classes:
             await c._create_table_command.exec(self.db)
             
-    async def uninstall(self, code):
+    async def uninstall(self):
         """Very brutal operation, drops all tables."""
         for c in self.classes:
             await c._drop_table_command.exec(self.db)
@@ -49,5 +49,3 @@ class SparrowModel:
         for s in self.all_sql_statements():
             print(str(s))
             print("\n----------------\n")
-
-

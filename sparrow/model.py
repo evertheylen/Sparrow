@@ -67,7 +67,7 @@ class SparrowModel:
             print(json.dumps(d, indent=4))
             
             print("\nKey properties are (might not be in definition): " + ", ".join([
-                p.name for p in key.referencing_props()]))
+                p.name for p in c.key.referencing_props()]))
             
             refs = []
             for p in c.key.props:

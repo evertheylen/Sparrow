@@ -58,7 +58,7 @@ class SparrowModel:
             await c._drop_table_command.exec(self.db)
         
     def sql_info(self):
-        """Print all sql statements."""
+        """Print all SQL statements (as organized as possible)."""
         print("\n")
         print("All (logged) SQL statements")
         print("===========================")
@@ -76,6 +76,7 @@ class SparrowModel:
             print(str(s), end="\n\n")
     
     def json_info(self):
+        """Print all JSON info (as organized as possible). Send this to frontend devs."""
         print("\n")
         print("Automatically generated JSON definitions")
         print("========================================")

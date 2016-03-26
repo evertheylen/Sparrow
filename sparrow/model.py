@@ -1,5 +1,6 @@
 
 import json
+from collections import OrderedDict
 
 from .util import *
 from .sql import *
@@ -59,9 +60,9 @@ class SparrowModel:
             s = "Definition for object type '{}'".format(c.__name__)
             print("\n" + s)
             print("-"*len(s))
-            d = {}
+            d = OrderedDict()
             for p in c._json_props:
-                d[p.name] = "<...>"
+                d[p.name] = str(p.type)
                 
             print(json.dumps(d, indent=4))
             
@@ -77,7 +78,7 @@ class SparrowModel:
                 assert len(refs) == 1, "Multiple references in key not yet supported"
                 print("\nYou should also mention a 'for' attribute:")
                 ref = refs[0]
-                fordct = {"what": ref.ref.__name__}
+                fordct = OrderedDict([("what", ref.ref.__name__)])
                 for p in ref.ref.referencing_props():
                     fordct[p.name] = "<...>"
                 print("for: " + json.dumps(fordct, indent=4))

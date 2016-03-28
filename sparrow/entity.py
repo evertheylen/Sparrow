@@ -46,6 +46,20 @@ class ObjectConstraintFail(Error):
         except:
             return "Object-wide constraint of object {t} failed (and __str__ failed too!)".format(t=type(self.obj).__name__)
 
+class CantSetProperty(Error):
+    """Raised when trying to set properties you may not edit. Mainly
+    when editing/setting through edit_from_json or Cls(json_dict=...)."""
+    
+    def __init__(self, obj, propnames):
+        self.obj = obj
+        self.propnames = propnames
+    
+    def __str__(self):
+        try:
+            return "Tried and failed to set {n} of object {s.obj}".format(s=self, n=", ".join(self.propnames))
+        except Exception as e:
+            return "Tried and failed to set {n} of some {t} (and __str__ failed too!)".format(n=", ".join(self.propnames), t=type(self.obj).__name__)
+
 
 # Entity stuff
 # ============
@@ -196,8 +210,9 @@ class KeyProperty(SingleKey, Property):
 class Reference(Queryable):
     """A reference to another Entity type."""
     
-    def __init__(self, ref: MetaEntity):
+    def __init__(self, ref: MetaEntity, json=True):
         self.ref = ref
+        self.json = json
         self.ref_props = list(ref.key.referencing_props())
         assert len(self.ref_props) >= 1
         self.props = []
@@ -210,7 +225,7 @@ class Reference(Queryable):
     
     def __postinit__(self):  # called by metaclass
         for rp in self.ref_props:
-            p = Property(rp.type, rp.sql_type if not rp.sql_type == "SERIAL" else "INT")
+            p = Property(rp.type, rp.sql_type if not rp.sql_type == "SERIAL" else "INT", json=self.json)
             p.cls = rp.cls
             p.name = self.name + "_" + rp.name
             p.dataname = self.name + "_" + rp.dataname
@@ -359,8 +374,8 @@ class MetaEntity(type):
         if not("__no_meta__" in dct and dct["__no_meta__"] == True):
             props = []
             
-            init_properties = []
             json_props = []
+            init_properties = []
             for k in ordered_props:
                 p = full_dct[k]
                 # Set some stuff of properties that are not known at creation time
@@ -378,7 +393,6 @@ class MetaEntity(type):
                     init_properties.append((p,False))
                         
             dct["_props"] = props
-            dct["_json_props"] = json_props
             
             refs = []
             init_ref_properties = []
@@ -389,9 +403,11 @@ class MetaEntity(type):
                 r.__postinit__()
                 refs.append(r)
                 props.extend(r.props)
+                json_props.extend([p for p in r.props if p.json])
                 init_raw_ref_properties.extend(r.props)
                 init_ref_properties.append(r)
-                
+            
+            dct["_json_props"] = json_props  # see below for _edit_json_props
             dct["_refs"] = refs
             
             def __metainit__(obj, db_args=None, json_dict=None, **kwargs):
@@ -408,10 +424,13 @@ class MetaEntity(type):
                     for (i, p) in enumerate(init_raw_ref_properties, len(init_properties)):
                         obj.__dict__[p.dataname] = db_args[i]
                 elif json_dict is not None:
+                    used = set()
+                    obj.in_db = False
                     # Init from a (more raw) dictionary, possibly unsafe
                     for (p, constrained) in init_properties:
                         if p.json and p.name in json_dict:
                             val = json_dict[p.name]
+                            used.add(p.name)
                         else:
                             if p.required:
                                 raise KeyError("Didn't find property {} in json_dict".format(p.name))
@@ -423,11 +442,15 @@ class MetaEntity(type):
                     for p in init_raw_ref_properties:
                         if p.json:
                             obj.__dict__[p.dataname] = json_dict[p.name]
+                            used.add(p.name)
                         else:
                             if p.required:
                                 raise KeyError("Didn't find property {} in json_dict".format(p.name))
                             else:
                                 obj.__dict__[p.dataname] = None
+                    notused = json_dict.keys() - used
+                    if len(notused) > 0:
+                        raise CantSetProperty(obj, notused)
                 else:
                     obj.in_db = False
                     for (p, constrained) in init_properties:
@@ -455,7 +478,13 @@ class MetaEntity(type):
             dct["_complete_props"] = [p for p in props if not isinstance(p, KeyProperty)]
             
             dct["_table_name"] = "table_" + name
-        
+            
+            edit_json_props = json_props[:]
+            for p in the_key.referencing_props():
+                if p in edit_json_props:
+                    edit_json_props.remove(p)
+            dct["_edit_json_props"] = edit_json_props
+            
             cls = type.__new__(self, name, bases, dct)
             
             for p in props:
@@ -583,6 +612,25 @@ class Entity(metaclass=MetaEntity):
             return cls.cache[key]
         except KeyError:
             return await cls._find_by_key_query.with_data(key=key).single(db)
+    
+    def __setprop__(self, prop, val):
+        if isinstance(prop, ConstrainedProperty) and (not prop.constraint(val)):
+            raise PropertyConstraintFail(self, prop)
+        self.__dict__[prop.dataname] = val
+    
+    def __getprop__(self, prop):
+        return self.__dict__[prop.dataname]
+    
+    def edit_from_json(self, dct: dict):
+        used = set()
+        for p in type(self)._edit_json_props:
+            if p.name in dct:
+                self.__setprop__(p, dct[p.name])
+                used.add(p.name)
+        
+        notused = dct.keys() - used
+        if len(notused) > 0:
+            raise CantSetProperty(self, notused)
     
     def to_json(self) -> str:
         return json.dumps(self.json_repr())

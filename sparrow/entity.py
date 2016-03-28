@@ -8,6 +8,8 @@ import json
 import weakref  # This is some serious next-level stuff :D
 import types  # For annotations
 
+import pdb
+
 from .util import *
 from .sql import *
 
@@ -27,7 +29,10 @@ class PropertyConstraintFail(Error):
         self.prop = prop
     
     def __str__(self):
-        return "Constraint of property {s.prop} of object {s.obj} failed".format(s=self)
+        try:
+            return "Constraint of property {s.prop.name} of object {s.obj} failed".format(s=self)
+        except Exception as e:
+            return "Constraint of property {s.prop.name} of some {t} failed (and __str__ failed too!)".format(s=self, t=type(self.obj).__name__)
 
 class ObjectConstraintFail(Error):
     """Raised when an object failed to follow its constraint."""
@@ -36,7 +41,10 @@ class ObjectConstraintFail(Error):
         self.obj = obj
     
     def __str__(self):
-        return "Object-wide constraint of object {s.obj} failed".format(s=self)
+        try:
+            return "Object-wide constraint of object {s.obj} failed".format(s=self)
+        except:
+            return "Object-wide constraint of object {t} failed (and __str__ failed too!)".format(t=type(self.obj).__name__)
 
 
 # Entity stuff
@@ -73,7 +81,7 @@ class Property(Queryable):
         datetime.datetime: "TIMESTAMP"  # but consider perhaps amount of milliseconds since UNIX epoch
     }
     
-    def __init__(self, typ, sql_type: str =None, constraint: types.FunctionType = None, sql_extra: str = "", 
+    def __init__(self, typ, sql_type: str = None, constraint: types.FunctionType = None, sql_extra: str = "", 
                  required: bool = True, json: bool = True):
         if sql_type is None:
             sql_type = Property.default_sqltypes[typ]
@@ -139,7 +147,7 @@ class Key(Queryable):
         if obj is not None:
             for (i, p) in enumerate(self.referencing_props()):
                 if p.constraint is not None and not p.constraint(val):
-                    raise PropertyConstraintFail(obj, p.name)
+                    raise PropertyConstraintFail(obj, p)
                 obj.__dict__[p.dataname] = val[i]
     
     def __delete__(self, obj):
@@ -158,7 +166,7 @@ class SingleKey(Key):
     def __set__(self, obj, val):
         if obj is not None:
             if self.single_prop.constraint is not None and not self.single_prop.constraint(val):
-                raise PropertyConstraintFail(obj, single_prop.name)
+                raise PropertyConstraintFail(obj, single_prop)
             obj.__dict__[self.single_prop.dataname] = val
     
     def __delete__(self, obj):
@@ -315,12 +323,18 @@ class ConstrainedProperty(Property):
     def __set__(self, obj, val):
         if obj is not None:
             if not self.constraint(val):
-                raise PropertyConstraintFail(obj, self.name)
+                raise PropertyConstraintFail(obj, self)
             obj.__dict__[self.dataname] = val
     
     def __delete__(self, obj):
         pass  # ?
 
+
+def classitems(dct, bases):
+    """Helper function to allow for inheritance"""
+    for b in bases:
+        yield from classitems(b.__dict__, b.__bases__)
+    yield from dct.items()
 
 class MetaEntity(type):
     """Metaclass for `Entity`. This does a whole lot of stuff you should not care about
@@ -333,11 +347,13 @@ class MetaEntity(type):
         return collections.OrderedDict()
 
     def __new__(self, name, bases, dct):
-        # TODO allow inheritance?
-        ordered_props = [k for (k, v) in dct.items()
+        # TODO test inheritance?
+        all_items = list(classitems(dct, bases))
+        full_dct = dict(all_items)  # unordered
+        ordered_props = [k for (k, v) in all_items
                 if isinstance(v, Property) and not k == "key"]
         
-        ordered_refs = [k for (k, v) in dct.items()
+        ordered_refs = [k for (k, v) in all_items
                 if isinstance(v, Reference)]
         
         if not("__no_meta__" in dct and dct["__no_meta__"] == True):
@@ -346,7 +362,7 @@ class MetaEntity(type):
             init_properties = []
             json_props = []
             for k in ordered_props:
-                p = dct[k]
+                p = full_dct[k]
                 # Set some stuff of properties that are not known at creation time
                 p.name = k
                 props.append(p)
@@ -368,7 +384,7 @@ class MetaEntity(type):
             init_ref_properties = []
             init_raw_ref_properties = []
             for k in ordered_refs:
-                r = dct[k]
+                r = full_dct[k]
                 r.name = k
                 r.__postinit__()
                 refs.append(r)
@@ -387,7 +403,7 @@ class MetaEntity(type):
                     for (i, (p, constrained)) in enumerate(init_properties):
                         val = db_args[i]
                         if constrained and (not p.constraint(val)):
-                            raise PropertyConstraintFail(obj, p.name)
+                            raise PropertyConstraintFail(obj, p)
                         obj.__dict__[p.dataname] = val
                     for (i, p) in enumerate(init_raw_ref_properties, len(init_properties)):
                         obj.__dict__[p.dataname] = db_args[i]
@@ -402,7 +418,7 @@ class MetaEntity(type):
                             else:
                                 val = None
                         if constrained and (not p.constraint(val)):
-                            raise PropertyConstraintFail(obj, p.name)
+                            raise PropertyConstraintFail(obj, p)
                         obj.__dict__[p.dataname] = val
                     for p in init_raw_ref_properties:
                         if p.json:
@@ -423,7 +439,7 @@ class MetaEntity(type):
                             else:
                                 val = None
                         if constrained and (not p.constraint(val)):
-                            raise PropertyConstraintFail(obj, p.name)
+                            raise PropertyConstraintFail(obj, p)
                         obj.__dict__[p.dataname] = val
                     for r in init_ref_properties:
                         r.__set__(obj, kwargs[r.name])
@@ -473,8 +489,12 @@ class MetaEntity(type):
         return inst
     
 
+
 class Entity(metaclass=MetaEntity):
-    """Central class for an Entity."""
+    """Central class for an Entity.
+    NOTE: Be careful with changing the key as it will fuck with caching.
+    Basically, don't do it.
+    """
     
     __no_meta__ = True
     
@@ -562,7 +582,7 @@ class Entity(metaclass=MetaEntity):
         try:
             return cls.cache[key]
         except KeyError:
-            return await super(RTEntity, cls).find_by_key(key, db)
+            return await cls._find_by_key_query.with_data(key=key).single(db)
     
     def to_json(self) -> str:
         return json.dumps(self.json_repr())
@@ -587,7 +607,10 @@ class Entity(metaclass=MetaEntity):
         return id(self)
      
     def __str__(self):
-        return type(self).__name__ + str(self.key) if isinstance(self.key, tuple) else "(" + str(self.key) + ")"
+        try:
+            return type(self).__name__ + str(self.key) if isinstance(self.key, tuple) else "(" + str(self.key) + ")"
+        except:
+            return "some " + type(self).__name__
 
 
 class Listener:
@@ -626,7 +649,6 @@ class Listener:
         """
     
 
-# NOTE: Be careful with changing the key as it will fuck with caching
 class RTEntity(Entity):
     """Subclass of Entity that sends live updates!
     Listeners should follow the interface of `Listener`.

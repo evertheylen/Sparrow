@@ -20,9 +20,12 @@ class SparrowModel:
     """
     The central class that keeps everything together.
     """
-    def __init__(self, ioloop, db_args, classes, debug=True):
+    def __init__(self, ioloop, db_args, classes, debug=True, db=None):
         self.ioloop = ioloop
-        self.db = Database(ioloop, **db_args)
+        if db is not None:
+            self.db = db
+        else:
+            self.db = Database(ioloop, **db_args)
         self.classes = classes
         self.debug = debug
         

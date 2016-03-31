@@ -34,6 +34,7 @@ class PropertyConstraintFail(Error):
         except Exception as e:
             return "Constraint of property {s.prop.name} of some {t} failed (and __str__ failed too!)".format(s=self, t=type(self.obj).__name__)
 
+
 class ObjectConstraintFail(Error):
     """Raised when an object failed to follow its constraint."""
     
@@ -46,6 +47,8 @@ class ObjectConstraintFail(Error):
         except:
             return "Object-wide constraint of object {t} failed (and __str__ failed too!)".format(t=type(self.obj).__name__)
 
+
+# TODO use this (search for CantSetProperty for more notes)
 class CantSetProperty(Error):
     """Raised when trying to set properties you may not edit. Mainly
     when editing/setting through edit_from_json or Cls(json_dict=...)."""
@@ -430,7 +433,7 @@ class MetaEntity(type):
                     for (p, constrained) in init_properties:
                         if p.json and p.name in json_dict:
                             val = json_dict[p.name]
-                            used.add(p.name)
+                            #used.add(p.name)
                         else:
                             if p.required:
                                 raise KeyError("Didn't find property {} in json_dict".format(p.name))
@@ -442,15 +445,16 @@ class MetaEntity(type):
                     for p in init_raw_ref_properties:
                         if p.json:
                             obj.__dict__[p.dataname] = json_dict[p.name]
-                            used.add(p.name)
+                            #used.add(p.name)
                         else:
                             if p.required:
                                 raise KeyError("Didn't find property {} in json_dict".format(p.name))
                             else:
                                 obj.__dict__[p.dataname] = None
-                    notused = json_dict.keys() - used
-                    if len(notused) > 0:
-                        raise CantSetProperty(obj, notused)
+                    # TODO perhaps enable this again :)
+                    #notused = json_dict.keys() - used
+                    #if len(notused) > 0:
+                    #    raise CantSetProperty(obj, notused)
                 else:
                     obj.in_db = False
                     for (p, constrained) in init_properties:
@@ -622,15 +626,16 @@ class Entity(metaclass=MetaEntity):
         return self.__dict__[prop.dataname]
     
     def edit_from_json(self, dct: dict):
-        used = set()
+        #used = set()
         for p in type(self)._edit_json_props:
             if p.name in dct:
                 self.__setprop__(p, dct[p.name])
-                used.add(p.name)
+                #used.add(p.name)
         
-        notused = dct.keys() - used
-        if len(notused) > 0:
-            raise CantSetProperty(self, notused)
+        # TODO perhaps make this work again (Keys are checked!)
+        #notused = dct.keys() - used
+        #if len(notused) > 0:
+        #    raise CantSetProperty(self, notused)
     
     def to_json(self) -> str:
         return json.dumps(self.json_repr())

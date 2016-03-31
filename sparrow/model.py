@@ -93,7 +93,7 @@ class SparrowModel:
                 for p in c._json_props:
                     d[p.name] = str(p.type)
                     
-                print(indent(json.dumps(d, indent=4)))
+                print("::\n\n" + indent(json.dumps(d, indent=4)))
             else:
                 print("Definition is custom!")
                 if hasattr(c.json_repr, "__doc__"):

@@ -43,6 +43,8 @@ class SparrowModel:
         yield from self.sql_statements
     
     def sql_for_class(self, cls):
+        for e in cls._enums:
+            yield e._create_type_command
         yield cls._create_table_command
         yield cls._drop_table_command
         yield cls._insert_command
@@ -53,12 +55,16 @@ class SparrowModel:
     async def install(self):
         """Set up database, only once for each "install" of the model"""
         for c in self.classes:
+            for e in c._enums:
+                await e._create_type_command.exec(self.db)
             await c._create_table_command.exec(self.db)
             
     async def uninstall(self):
         """Very brutal operation, drops all tables."""
         for c in self.classes:
             await c._drop_table_command.exec(self.db)
+            for e in c._enums:
+                await e._drop_type_command.exec(self.db)
         
     def sql_info(self):
         """Print all SQL statements (as organized as possible)."""

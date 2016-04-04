@@ -13,10 +13,6 @@ import pdb
 from .util import *
 from .sql import *
 
-# Forward declarations for annotations
-MetaEntity = None
-Entity = None
-RTEntity = None
 
 # Exceptions
 # ==========
@@ -77,6 +73,18 @@ def create_order(op):
         return Order(self, op)
     return method
 
+# TODO allow for more custom SQL types
+# TODO check constraint ourself?
+class Enum:
+    def __init__(self, *args):
+        self.options = args
+    
+    def __postinit__(self):
+        self._create_type_command = RawSql("CREATE TYPE {s.name} AS ENUM ({opt})".format(
+            s=self, opt=", ".join(["'" + str(s) + "'" for s in self.options])))
+        self._drop_type_command = RawSql("DROP TYPE IF EXISTS {s.name}".format(s=self))
+
+
 class Queryable:
     __lt__ = create_where_comparison("<")
     __gt__ = create_where_comparison(">")
@@ -100,7 +108,9 @@ class Property(Queryable):
     
     def __init__(self, typ, sql_type: str = None, constraint: types.FunctionType = None, sql_extra: str = "", 
                  required: bool = True, json: bool = True):
-        if sql_type is None:
+        if isinstance(typ, Enum):
+            sql_type = ""
+        elif sql_type is None:
             sql_type = Property.default_sqltypes[typ]
         self.type = typ
         self.sql_type = sql_type
@@ -111,6 +121,10 @@ class Property(Queryable):
         self.name = None  # Set by the metaclass
         self.dataname = None  # Idem, where to find the actual stored data inside an object
         self.cls = None  # Idem
+    
+    def __postinit__(self):
+        if isinstance(self.type, Enum):
+            self.sql_type = self.type.name
     
     def sql_def(self):
         return "\t" + self.name + " " + self.type_sql_def()
@@ -213,7 +227,7 @@ class KeyProperty(SingleKey, Property):
 class Reference(Queryable):
     """A reference to another Entity type."""
     
-    def __init__(self, ref: MetaEntity, json=True):
+    def __init__(self, ref: "MetaEntity", json=True):
         self.ref = ref
         self.json = json
         self.ref_props = list(ref.key.referencing_props())
@@ -264,7 +278,7 @@ class Reference(Queryable):
 class RTReference(Reference):
     """Reference that automatically notifies the referencing object."""
     
-    def __init__(self, ref: MetaEntity):
+    def __init__(self, ref: "MetaEntity"):
         """`ref` needs to be a subclass of `RTEntity`."""
         assert issubclass(ref, RTEntity)
         Reference.__init__(self, ref)
@@ -278,14 +292,14 @@ class RTReference(Reference):
             try:
                 key = self.__get__(obj)
                 if key in self.ref.cache:
-                    self.ref.cache[key].remove_reference(obj)
+                    self.ref.cache[key].remove_reference(self, obj)
             except KeyError:
                 pass
             for (i, p) in enumerate(self.props):
                 obj.__dict__[p.dataname] = val[i]
             # Update
             if val in self.ref.cache:
-                self.ref.cache[val].new_reference(obj)
+                self.ref.cache[val].new_reference(self, obj)
 
 
 class RTSingleReference(RTReference):
@@ -299,13 +313,13 @@ class RTSingleReference(RTReference):
             try:
                 key = obj.__dict__[self.single_prop.dataname]
                 if key in self.ref.cache:
-                    self.ref.cache[key].remove_reference(obj)
+                    self.ref.cache[key].remove_reference(self, obj)
             except KeyError:
                 pass
             obj.__dict__[self.single_prop.dataname] = val
             # Update
             if val in self.ref.cache:
-                self.ref.cache[val].new_reference(obj)
+                self.ref.cache[val].new_reference(self, obj)
 
 class SingleReference(Reference):
     """Version of Reference with only one referencing property.
@@ -354,6 +368,7 @@ def classitems(dct, bases):
         yield from classitems(b.__dict__, b.__bases__)
     yield from dct.items()
 
+
 class MetaEntity(type):
     """Metaclass for `Entity`. This does a whole lot of stuff you should not care about
     as user of this library. If you do want to know how it works I suggest you read the code.
@@ -374,15 +389,25 @@ class MetaEntity(type):
         ordered_refs = [k for (k, v) in all_items
                 if isinstance(v, Reference)]
         
-        if not("__no_meta__" in dct and dct["__no_meta__"] == True):
-            props = []
+        if not("__no_meta__" in dct and dct["__no_meta__"]):
+            enums = []
+            # TODO handle order in class inheritance
+            for (k,v) in dct.items():
+                if isinstance(v, Enum):
+                    v.name = k
+                    v.__postinit__()
+                    enums.append(v)
             
+            dct["_enums"] = enums
+            
+            props = []
             json_props = []
             init_properties = []
             for k in ordered_props:
                 p = full_dct[k]
                 # Set some stuff of properties that are not known at creation time
                 p.name = k
+                p.__postinit__()
                 props.append(p)
                 if p.json:
                     json_props.append(p)
@@ -462,7 +487,7 @@ class MetaEntity(type):
                             val = kwargs[p.name]
                         except KeyError as e:
                             if p.required:
-                                raise e
+                                raise e from e
                             else:
                                 val = None
                         if constrained and (not p.constraint(val)):
@@ -503,6 +528,8 @@ class MetaEntity(type):
             cls._update_command = Update(cls).to_raw()
             cls._delete_command = Delete(cls).to_raw()
             cls._find_by_key_query = Select(cls, [cls.key == Field("key")])
+            
+                    
             
             # FANCYYYY
             cls.cache = weakref.WeakValueDictionary()
@@ -666,6 +693,58 @@ class Entity(metaclass=MetaEntity):
             return "some " + type(self).__name__
 
 
+
+class RTEntity(Entity):
+    """Subclass of Entity that sends live updates!
+    Listeners should follow the interface of `Listener`.
+    """
+    __no_meta__ = True
+    
+    def __init__(self, *args, **kwargs):
+        self._listeners = set()
+        super(RTEntity, self).__init__(*args, **kwargs)
+    
+    async def update(self, db: Database):
+        await super(RTEntity, self).update(db)
+        for l in self._listeners:
+            l.update(self)
+    
+    def send_update(self, db):
+        """To manually send messages to all listeners. Won't save to database."""
+        for l in self._listeners:
+            l.update(self)
+    
+    async def delete(self, db):
+        await super(RTEntity, self).delete(db)
+        for l in self._listeners:
+            l.delete(self)
+            l._remove_listenee(self)
+    
+    def new_reference(self, ref, ref_obj):
+        for l in self._listeners:
+            l.new_reference(self, ref_obj)
+    
+    def remove_reference(self, ref, ref_obj):
+        for l in self._listeners:
+            l.remove_reference(self, ref_obj)
+            # TODO perhaps a problem with deleting?
+    
+    def add_listener(self, l: "Listener"):
+        """Add listeners to this object."""
+        self._listeners.add(l)
+        l._add_listenee(self)
+    
+    def remove_listener(self, l: "Listener"):
+        if l in self._listeners:
+            self._listeners.remove(l)
+            l._remove_listenee(self)
+    
+    def remove_all_listeners(self):
+        for l in self._listeners:
+            self._listeners.remove(l)
+            l._remove_listenee(self)
+
+
 class Listener:
     """Interface for a listener to be used with `RTEntity`. Main use is documentation,
     not functionality.
@@ -701,55 +780,3 @@ class Listener:
         have to be a `RTEntity`.
         """
     
-
-class RTEntity(Entity):
-    """Subclass of Entity that sends live updates!
-    Listeners should follow the interface of `Listener`.
-    """
-    __no_meta__ = True
-    
-    def __init__(self, *args, **kwargs):
-        self._listeners = set()
-        super(RTEntity, self).__init__(*args, **kwargs)
-    
-    async def update(self, db: Database):
-        await super(RTEntity, self).update(db)
-        for l in self._listeners:
-            l.update(self)
-    
-    def send_update(self, db):
-        """To manually send messages to all listeners. Won't save to database."""
-        for l in self._listeners:
-            l.update(self)
-    
-    async def delete(self, db):
-        await super(RTEntity, self).delete(db)
-        for l in self._listeners:
-            l.delete(self)
-            l._remove_listenee(self)
-    
-    def new_reference(self, ref_obj):
-        for l in self._listeners:
-            l.new_reference(self, ref_obj)
-    
-    def remove_reference(self, ref_obj):
-        for l in self._listeners:
-            l.remove_reference(self, ref_obj)
-            # TODO perhaps a problem with deleting?
-    
-    def add_listener(self, l: Listener):
-        """Add listeners to this object."""
-        self._listeners.add(l)
-        l._add_listenee(self)
-    
-    def remove_listener(self, l: Listener):
-        if l in self._listeners:
-            self._listeners.remove(l)
-            l._remove_listenee(self)
-    
-    def remove_all_listeners(self, l: Listener):
-        for l in self._listeners:
-            self._listeners.remove(l)
-            l._remove_listenee(self)
-
-

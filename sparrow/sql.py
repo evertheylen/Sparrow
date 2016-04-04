@@ -13,8 +13,6 @@ import momoko
 
 from .util import *
 
-# Forward declarations for annotations
-Sql = None
 
 # Exceptions
 # ==========
@@ -24,7 +22,7 @@ class SqlError(Error):
     also include the query that went wrong.
     """
     
-    def __init__(self, err: psycopg2.Error, query: Sql, data: dict):
+    def __init__(self, err: psycopg2.Error, query: "Sql", data: dict):
         self.err = err
         self.query = query
         self.data = data
@@ -33,6 +31,8 @@ class SqlError(Error):
         return "While executing this SQL:\n{s.query}\nWith this data:{data}\nThis exception occured:{s.err}".format(
             s = self, data = repr(self.data))
 
+class NotSingle(Error):
+    pass
 
 # Classes
 # =======
@@ -46,7 +46,7 @@ class Database:
         self.pdb = momoko.Pool(dsn=dsn, size=momoko_poolsize, ioloop=ioloop)
         self.pdb.connect()
 
-    async def get_cursor(self, statement: Sql, unsafe_dict: dict):
+    async def get_cursor(self, statement: "Sql", unsafe_dict: dict):
         statement = str(statement)
         cursor = await self.pdb.execute(statement, unsafe_dict)
         return cursor
@@ -65,6 +65,7 @@ class Unsafe:
     
     def __str__(self):
         return self.text
+
 
 class Field:
     """Wrapper for data that is to be inserted into the query (with Sql.with_data) later on."""
@@ -96,7 +97,7 @@ class SqlResult:
     given class in `self.query.cls`, don't try them if it that class is `None`.
     """
     
-    def __init__(self, cursor, query: Sql):
+    def __init__(self, cursor, query: "Sql"):
         self.cursor = cursor
         self.query = query
     
@@ -109,8 +110,9 @@ class SqlResult:
         return self.cursor.fetchone()
     
     def single(self):
-        """Returns a single object (and asserts there is only one, use `amount(1)` if not."""
-        assert self.cursor.rowcount == 1, "Not 1 result but {} result(s).".format(self.cursor.rowcount)
+        """Returns a single object (and raises NotSingle if there is not only one."""
+        if self.cursor.rowcount != 1:
+            raise NotSingle("Not 1 result but {} result(s).".format(self.cursor.rowcount))
         return self.query.cls(db_args=self.cursor.fetchone())
         
     def all(self):
@@ -119,6 +121,7 @@ class SqlResult:
     
     def amount(self, i: int):
         """Returns a given number of objects in the query."""
+        # TODO consider creating a version that asserts the amount specified is found
         return [self.query.cls(db_args=t) for t in self.cursor.fetchmany(size=i)]
     
     def scroll(self, i: int):
@@ -207,6 +210,7 @@ class Sql:
     def __str__(self):
         return "undefined so far"
 
+
 class ClassedSql(Sql):
     """Version of `Sql` that also saves a given class. `SqlResult` will later try to parse its result
     as instances of this class.
@@ -218,6 +222,7 @@ class ClassedSql(Sql):
     
     def to_raw(self):
         return RawClassedSql(self.cls, str(self), self.data)
+
 
 class RawSql(Sql):
     """Simply saves a string, and also some data. This is in contrast with `Sql`, which may save
@@ -238,6 +243,7 @@ class RawSql(Sql):
     
     def __str__(self):
         return self.text
+
 
 class RawClassedSql(RawSql, ClassedSql):
     """Version of `RawSql` that also saves a given class like `ClassedSql`."""

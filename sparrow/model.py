@@ -9,9 +9,13 @@ from .entity import *
 # Helpers
 # =======
 
-def indent(s, i=4):
+def indent(s, i=4, code=True):
     lines = s.split("\n")
-    return "\n".join([(" "*i) + l for l in lines])
+    prefix = "::\n\n" if code else ""
+    return prefix + "\n".join([(" "*i) + l for l in lines])
+
+def inline(s):
+    return "``" + str(s) + "``"
 
 # Central class
 # =============
@@ -72,7 +76,7 @@ class SparrowModel:
         print("All (logged) SQL statements")
         print("===========================")
         for c in self.classes:
-            s = "Statements for object type '{}'".format(c.__name__)
+            s = "Statements for object type ``{}``".format(c.__name__)
             print("\n\n" + s)
             print("-"*len(s), end="\n\n")
             for s in self.sql_for_class(c):
@@ -90,23 +94,26 @@ class SparrowModel:
         print("Automatically generated JSON definitions")
         print("========================================")
         for c in self.classes:
-            s = "Definition for object type '{}'".format(c.__name__)
+            s = "Definition for object type ``{}``".format(c.__name__)
             print("\n\n" + s)
             print("-"*len(s), end="\n\n")
+            
+            possible_for = False
             
             if c.json_repr is Entity.json_repr:
                 d = OrderedDict()
                 for p in c._json_props:
                     d[p.name] = str(p.type)
                     
-                print("::\n\n" + indent(json.dumps(d, indent=4)))
+                print(indent(json.dumps(d, indent=4)))
             else:
                 print("Definition is custom!")
                 if hasattr(c.json_repr, "__doc__"):
-                    print("The documentation says: " + c.json_repr.__doc__)
+                    print("The documentation says:\n\n" + indent(c.json_repr.__doc__, code=False))
+                possible_for = True
             
             print("\nKey properties are (might not be in definition): " + ", ".join([
-                p.name for p in c.key.referencing_props()]))
+                inline(p.name) for p in c.key.referencing_props()]))
             
             if isinstance(c.key, Key) and not isinstance(c.key, Property):
                 refs = []
@@ -114,9 +121,9 @@ class SparrowModel:
                     if isinstance(p, Reference) or isinstance(p, SingleReference):
                         refs.append(p)
                 
-                if len(refs) > 0:
+                if possible_for and len(refs) > 0:
                     assert len(refs) == 1, "Multiple references in key not yet supported"
-                    print('\nYou should also mention a "for" attribute:\n')
+                    print('\nThere might be a "for" attribute needed when getting:\n')
                     ref = refs[0]
                     fordct = OrderedDict([("what", ref.ref.__name__)])
                     for p in ref.ref.key.referencing_props():

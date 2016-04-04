@@ -83,6 +83,9 @@ class Enum:
         self._create_type_command = RawSql("CREATE TYPE {s.name} AS ENUM ({opt})".format(
             s=self, opt=", ".join(["'" + str(s) + "'" for s in self.options])))
         self._drop_type_command = RawSql("DROP TYPE IF EXISTS {s.name}".format(s=self))
+    
+    def __str__(self):
+        return "Enum(" + ", ".join([repr(o) for o in self.options]) + ")"
 
 
 class Queryable:

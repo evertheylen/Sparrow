@@ -633,7 +633,7 @@ class Entity(metaclass=MetaEntity):
     @classmethod
     def raw(cls: MetaEntity, text: str) -> RawSql:
         """Return a RawSql where the results will be interpreted as objects of `cls`."""
-        return RawSql(text, cls)
+        return RawClassedSql(cls, text)
     
     @classmethod
     def get(cls: MetaEntity, *where_clauses: list) -> Sql:

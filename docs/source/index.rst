@@ -6,6 +6,10 @@
 Welcome to Sparrow's documentation!
 ===================================
 
+Quick Links:
+	
+	- Github: https://github.com/evertheylen/Sparrow
+
 Sparrow stands for "Single Page Application Real-time Relational Object Wrapper".
 
 It doesn't have to be used for a SPA, but it has JSON support out of the box to send objects inside messages (I personally prefer websockets).

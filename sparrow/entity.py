@@ -80,6 +80,7 @@ class Enum:
         self.options = args
     
     def __postinit__(self):
+        self.__postinited__ = True
         self._create_type_command = RawSql("CREATE TYPE {s.name} AS ENUM ({opt})".format(
             s=self, opt=", ".join(["'" + str(s) + "'" for s in self.options])))
         self._drop_type_command = RawSql("DROP TYPE IF EXISTS {s.name}".format(s=self))
@@ -126,6 +127,7 @@ class Property(Queryable):
         self.cls = None  # Idem
     
     def __postinit__(self):
+        self.__postinited__ = True
         if isinstance(self.type, Enum):
             self.sql_type = self.type.name
     
@@ -149,6 +151,7 @@ class Key(Queryable):
         self.single_prop = None
     
     def __postinit__(self):
+        self.__postinited__ = True
         newprops = []
         for p in self.props:
             if isinstance(p, Reference):
@@ -216,7 +219,7 @@ class KeyProperty(SingleKey, Property):
         self.single_prop = self
     
     def __postinit__(self):
-        pass
+        self.__postinited__ = True
     
     def referencing_props(self):
         yield self
@@ -244,6 +247,7 @@ class Reference(Queryable):
         return SingleReference
     
     def __postinit__(self):  # called by metaclass
+        self.__postinited__ = True
         for rp in self.ref_props:
             p = Property(rp.type, rp.sql_type if not rp.sql_type == "SERIAL" else "INT", json=self.json)
             p.cls = rp.cls
@@ -408,6 +412,8 @@ class MetaEntity(type):
             init_properties = []
             for k in ordered_props:
                 p = full_dct[k]
+                if hasattr(p, "__postinited__") and p.__postinited__:
+                    p = copy.deepcopy(p)
                 # Set some stuff of properties that are not known at creation time
                 p.name = k
                 p.__postinit__()
@@ -430,6 +436,8 @@ class MetaEntity(type):
             init_raw_ref_properties = []
             for k in ordered_refs:
                 r = full_dct[k]
+                if hasattr(r, "__postinited__") and r.__postinited__:
+                    r = copy.deepcopy(r)
                 r.name = k
                 r.__postinit__()
                 refs.append(r)
@@ -502,10 +510,13 @@ class MetaEntity(type):
                     
             dct["__metainit__"] = __metainit__
             
-            assert "key" in dct, "Each class must have a key"
-            the_key = dct["key"]
-            the_key.__postinit__()
-            dct["_incomplete"] = isinstance(the_key, KeyProperty)
+            if "key" in dct:
+                the_key = dct["key"]
+                the_key.__postinit__()
+                dct["_incomplete"] = isinstance(the_key, KeyProperty)
+            else:
+                assert "key" in full_dct, "Each class must have a key"
+                the_key = full_dct["key"]
             
             dct["_complete_props"] = [p for p in props if not isinstance(p, KeyProperty)]
             
@@ -531,7 +542,6 @@ class MetaEntity(type):
             cls._update_command = Update(cls).to_raw()
             cls._delete_command = Delete(cls).to_raw()
             cls._find_by_key_query = Select(cls, [cls.key == Field("key")])
-            
                     
             
             # FANCYYYY

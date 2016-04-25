@@ -258,7 +258,35 @@ class RawClassedSql(RawSql, ClassedSql):
         return RawClassedSql(self.cls, self.text, copy.copy(self.data))
 
 
-class Where(Sql):
+class Condition(Sql):
+    pass
+
+
+class Not(Condition):
+    def __init__(self, cond):
+        Sql.__preinit__(self)
+        self.cond = self.check(cond)
+        Sql.__init__(self)
+    
+    def __str__(self):
+        return "(NOT {})".format(self.cond)
+
+class MultiCondition(Condition):
+    def __init__(self, *conds):
+        Sql.__preinit__(self)
+        self.conditions = [self.check(c) for c in conds]
+        Sql.__init__(self)
+
+class And(MultiCondition):
+    def __str__(self):
+        return "(" + " AND ".join([str(c) for c in self.conditions]) + ")"
+
+class Or(MultiCondition):
+    def __str__(self):
+        return "(" + " OR ".join([str(c) for c in self.conditions]) + ")"
+
+
+class Where(Condition):
     """Encodes a single 'WHERE' clause."""
     
     def __init__(self, lfield, op: str, rfield, data={}):

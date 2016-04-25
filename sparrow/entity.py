@@ -248,6 +248,7 @@ class Reference(Queryable):
     
     def __postinit__(self):  # called by metaclass
         self.__postinited__ = True
+        self.props = []
         for rp in self.ref_props:
             p = Property(rp.type, rp.sql_type if not rp.sql_type == "SERIAL" else "INT", json=self.json)
             p.cls = rp.cls

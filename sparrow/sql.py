@@ -109,6 +109,9 @@ class SqlResult:
         """
         return self.cursor.fetchone()
     
+    def raw_all(self):
+        return self.cursor.fetchall()
+    
     def single(self):
         """Returns a single object (and raises NotSingle if there is not only one."""
         if self.cursor.rowcount != 1:
@@ -171,6 +174,7 @@ class Sql:
     amount = _wrapper_sqlresult(SqlResult.amount)
     count = _wrapper_sqlresult(SqlResult.count)
     raw = _wrapper_sqlresult(SqlResult.raw)
+    raw_all = _wrapper_sqlresult(SqlResult.raw_all)
     
     def with_data(self, **kwargs):
         """This function creates a copy of the statement with added data, passed as keyword arguments."""

@@ -110,6 +110,7 @@ class SqlResult:
         return self.cursor.fetchone()
     
     def raw_all(self):
+        """Returns all raw values."""
         return self.cursor.fetchall()
     
     def single(self):

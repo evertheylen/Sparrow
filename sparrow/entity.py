@@ -233,7 +233,7 @@ class KeyProperty(SingleKey, Property):
 class Reference(Queryable):
     """A reference to another Entity type."""
     
-    def __init__(self, ref: "MetaEntity", json=True):
+    def __init__(self, ref: "MetaEntity", json=True, cascade=True):
         self.ref = ref
         self.json = json
         self.ref_props = list(ref.key.referencing_props())
@@ -241,6 +241,7 @@ class Reference(Queryable):
         self.props = []
         self.single_prop = None
         self.name = None  # Set by metaclass
+        self.cascade = cascade
     
     @classmethod
     def single_upgrade(cls):
@@ -265,7 +266,7 @@ class Reference(Queryable):
         return "\tFOREIGN KEY ({own_props}) REFERENCES {ref_name}".format(
             own_props=", ".join([p.name for p in self.props]),
             ref_name=self.ref._table_name,
-        )
+        ) + " ON DELETE CASCADE" if self.cascade else ""
     
     def __str__(self):
         return "(" + ", ".join([str(p) for p in self.props]) + ")"
@@ -344,9 +345,6 @@ class SingleReference(Reference):
         if obj is not None:
             obj.__dict__[self.single_prop.dataname] = val
     
-    def __delete__(self, obj):
-        pass  # ?
-    
     def __str__(self):
         return str(self.single_prop)
 
@@ -365,9 +363,6 @@ class ConstrainedProperty(Property):
             if not self.constraint(val):
                 raise PropertyConstraintFail(obj, self)
             obj.__dict__[self.dataname] = val
-    
-    def __delete__(self, obj):
-        pass  # ?
 
 
 def classitems(dct, bases):

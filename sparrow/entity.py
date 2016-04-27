@@ -90,15 +90,47 @@ class Enum:
 
 
 class Queryable:
-    __lt__ = create_where_comparison("<")
-    __gt__ = create_where_comparison(">")
-    __le__ = create_where_comparison("<=")
-    __ge__ = create_where_comparison(">=")
-    __eq__ = create_where_comparison("=")
-    __ne__ = create_where_comparison("!=")
+    _overloads = {
+        "__lt__": create_where_comparison("<"),
+        "__gt__": create_where_comparison(">"),
+        "__le__": create_where_comparison("<="),
+        "__ge__": create_where_comparison(">="),
+        "__eq__": create_where_comparison("="),
+        "__ne__": create_where_comparison("!="),
+        "__pos__": create_order("ASC"),
+        "__neg__": create_order("DESC"),
+    }
     
-    __pos__ = create_order("ASC")
-    __neg__ = create_order("DESC")
+    def __eq__(self, other):
+        return self is other
+    
+    def __ne__(self, other):
+        return self is not other
+    
+    _originals = {
+        "__eq__": __eq__,
+        "__ne__": __ne__,
+    }
+    
+    _use_own_overloads = False
+    
+    @staticmethod
+    def _set_overloads(use_own: bool):
+        if Queryable._use_own_overloads == use_own:
+            return
+        
+        if use_own:
+            for k in Queryable._originals:
+                delattr(Queryable, k)
+            for (k, v) in Queryable._overloads.items():
+                setattr(Queryable, k, v)
+        else:
+            for k in Queryable._overloads:
+                delattr(Queryable, k)
+            for (k, v) in Queryable._originals.items():
+                setattr(Queryable, k, v)
+        
+        Queryable._use_own_overloads = use_own
 
 
 class Property(Queryable):
@@ -383,6 +415,8 @@ class MetaEntity(type):
         return collections.OrderedDict()
 
     def __new__(self, name, bases, dct):
+        Queryable._set_overloads(False)
+        
         # TODO test inheritance?
         all_items = list(classitems(dct, bases))
         full_dct = dict(all_items)  # unordered
@@ -523,6 +557,8 @@ class MetaEntity(type):
                 if p in edit_json_props:
                     edit_json_props.remove(p)
             dct["_edit_json_props"] = edit_json_props
+            
+            Queryable._set_overloads(True)
             
             cls = type.__new__(self, name, bases, dct)
             

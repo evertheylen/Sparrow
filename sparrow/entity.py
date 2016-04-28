@@ -444,6 +444,8 @@ class MetaEntity(type):
                 p = full_dct[k]
                 if hasattr(p, "__postinited__") and p.__postinited__:
                     p = copy.deepcopy(p)
+                    full_dct[k] = p
+                    dct[k] = p
                 # Set some stuff of properties that are not known at creation time
                 p.name = k
                 p.__postinit__()
@@ -468,6 +470,8 @@ class MetaEntity(type):
                 r = full_dct[k]
                 if hasattr(r, "__postinited__") and r.__postinited__:
                     r = copy.deepcopy(r)
+                    full_dct[k] = r
+                    dct[k] = r
                 r.name = k
                 r.__postinit__()
                 refs.append(r)
@@ -540,13 +544,16 @@ class MetaEntity(type):
                     
             dct["__metainit__"] = __metainit__
             
-            if "key" in dct:
-                the_key = dct["key"]
+            if "key" in full_dct:
+                the_key = full_dct["key"]
+                if hasattr(the_key, "__postinited__") and the_key.__postinited__:
+                    the_key = copy.deepcopy(the_key)
                 the_key.__postinit__()
+                dct["key"] = the_key
+                full_dct["key"] = the_key
                 dct["_incomplete"] = isinstance(the_key, KeyProperty)
             else:
-                assert "key" in full_dct, "Each class must have a key"
-                the_key = full_dct["key"]
+                assert False, "Each class must have a key"  # TODO
             
             dct["_complete_props"] = [p for p in props if not isinstance(p, KeyProperty)]
             
@@ -564,6 +571,8 @@ class MetaEntity(type):
             
             for p in props:
                 p.cls = cls
+            if isinstance(cls.key, Property):
+                cls.key.cls = cls
             
             cls._create_table_command = CreateTable(cls).to_raw()
             cls._drop_table_command = DropTable(cls).to_raw()

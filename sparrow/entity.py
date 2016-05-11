@@ -78,6 +78,7 @@ def create_order(op):
 class Enum:
     def __init__(self, *args):
         self.options = args
+        self.inv_options = {val: num for num, val in enumerate(self.options)}
     
     def __postinit__(self):
         self.__postinited__ = True
@@ -313,6 +314,8 @@ class Reference(Queryable):
             for (i, p) in enumerate(self.props):
                 obj.__dict__[p.dataname] = val[i]
     
+    __simple_set__ = __set__
+    
     def __delete__(self, obj):
         pass  # ?
 
@@ -342,8 +345,28 @@ class RTReference(Reference):
             if val in self.ref.cache:
                 self.ref.cache[val].new_reference(self, obj)
 
+class SingleReference(Reference):
+    """Version of Reference with only one referencing property.
+    (Don't directly use this, it will be automatic.)
+    """
+    
+    def __get__(self, obj, type=None):
+        if obj is None:
+            return self
+        return obj.__dict__[self.single_prop.dataname]
+    
+    def __set__(self, obj, val):
+        # References can not be constrained
+        if obj is not None:
+            obj.__dict__[self.single_prop.dataname] = val
+    
+    __simple_set__ = __set__
+    
+    def __str__(self):
+        return str(self.single_prop)
 
-class RTSingleReference(RTReference):
+
+class RTSingleReference(RTReference, SingleReference):
     """Version of RTReference with only one referencing property.
     (Don't directly use this, it will be automatic.)
     """
@@ -362,23 +385,6 @@ class RTSingleReference(RTReference):
             if val in self.ref.cache:
                 self.ref.cache[val].new_reference(self, obj)
 
-class SingleReference(Reference):
-    """Version of Reference with only one referencing property.
-    (Don't directly use this, it will be automatic.)
-    """
-    
-    def __get__(self, obj, type=None):
-        if obj is None:
-            return self
-        return obj.__dict__[self.single_prop.dataname]
-    
-    def __set__(self, obj, val):
-        # References can not be constrained
-        if obj is not None:
-            obj.__dict__[self.single_prop.dataname] = val
-    
-    def __str__(self):
-        return str(self.single_prop)
 
 
 # This is a better way of doing things than python's native property
@@ -482,6 +488,7 @@ class MetaEntity(type):
             
             dct["_json_props"] = json_props  # see below for _edit_json_props
             dct["_refs"] = refs
+            dct["_rt_refs"] = [r for r in refs if isinstance(r, RTReference)]
             
             def __metainit__(obj, db_args=None, json_dict=None, **kwargs):
                 # TODO document and test three ways of initialisation
@@ -539,7 +546,8 @@ class MetaEntity(type):
                             raise PropertyConstraintFail(obj, p)
                         obj.__dict__[p.dataname] = val
                     for r in init_ref_properties:
-                        r.__set__(obj, kwargs[r.name])
+                        r.__simple_set__(obj, kwargs[r.name])
+                        # Can't call listeners yet, do that on insert or update
                 obj.check()
                     
             dct["__metainit__"] = __metainit__
@@ -641,6 +649,13 @@ class Entity(metaclass=MetaEntity):
         else:
             await insert.exec(db)
         self.in_db = True
+        
+        for rt_ref in self._rt_refs:
+            # Send references to all RTReferences we couldn't trigger when initializing
+            # (Because some properties weren't actually set)
+            val = getattr(self, rt_ref.name)
+            if val in rt_ref.ref.cache:
+                rt_ref.ref.cache[val].new_reference(rt_ref, self)
     
     async def update(self, db):
         """Update object in the database."""
@@ -821,7 +836,7 @@ class Listener:
     def update(self, obj: RTEntity):
         """Handle updates to the object."""
     
-    def delete(self, o: RTEntity):
+    def delete(self, obj: RTEntity):
         """Handle deletions of the object."""
     
     def new_reference(self, obj: RTEntity, ref_obj: Entity):

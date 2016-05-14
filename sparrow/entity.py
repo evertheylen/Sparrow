@@ -56,8 +56,71 @@ class CantSetProperty(Error):
     def __str__(self):
         try:
             return "Tried and failed to set {n} of object {s.obj}".format(s=self, n=", ".join(self.propnames))
-        except Exception as e:
+        except:
             return "Tried and failed to set {n} of some {t} (and __str__ failed too!)".format(n=", ".join(self.propnames), t=type(self.obj).__name__)
+
+
+# Type stuff
+# ==========
+
+default_sqltypes = {
+    int: "INT",
+    str: "VARCHAR",
+    float: "DOUBLE PRECISION",
+    bool: "BOOL",
+    datetime.datetime: "TIMESTAMP"  # but consider perhaps amount of seconds since UNIX epoch
+}
+
+class Type:        
+    def __init__(self, python_type, sql_type=None):
+        if sql_type is not None:
+            self.python_type = python_type
+            self.sql_type = sql_type
+        else:
+            self.python_type = python_type
+            self.sql_type = default_sqltypes[python_type]
+    
+    def to_sql(obj: "self.python_type"):
+        return str(obj)
+    
+    def from_sql(obj):
+        return obj
+    
+    def __str__(self):
+        return "Type({}, {})".format(str(self.python_type), self.sql_type)
+
+
+class List(Type):
+    def __init__(self, inner_type):
+        self.python_type = list
+        if not isinstance(inner_type, Type):
+            inner_type = Type(inner_type)
+        self.inner_type = inner_type
+        self.sql_type = inner_type.sql_type + "[]"
+    
+    def to_sql(obj: "self.python_type", f=lambda o: str(o)):
+        return "{" + ", ".join([f(o) for o in obj]) + "}"
+    
+    def __str__(self):
+        return "List(" + str(self.inner_type) + ")"
+
+
+class Enum(Type):
+    def __init__(self, *args):
+        self.options = args
+        self.inv_options = {val: num for num, val in enumerate(self.options)}
+        self.python_type = str
+    
+    def __postinit__(self):
+        self.__postinited__ = True
+        self._create_type_command = RawSql("CREATE TYPE {s.name} AS ENUM ({opt})".format(
+            s=self, opt=", ".join(["'" + str(s) + "'" for s in self.options])))
+        self._drop_type_command = RawSql("DROP TYPE IF EXISTS {s.name}".format(s=self))
+        self.sql_type = self.name
+    
+    def __str__(self):
+        return "Enum(" + ", ".join([repr(o) for o in self.options]) + ")"
+
 
 
 # Entity stuff
@@ -71,23 +134,7 @@ def create_where_comparison(op):
 def create_order(op):
     def method(self):
         return Order(self, op)
-    return method
-
-# TODO allow for more custom SQL types
-# TODO check constraint ourself?
-class Enum:
-    def __init__(self, *args):
-        self.options = args
-        self.inv_options = {val: num for num, val in enumerate(self.options)}
-    
-    def __postinit__(self):
-        self.__postinited__ = True
-        self._create_type_command = RawSql("CREATE TYPE {s.name} AS ENUM ({opt})".format(
-            s=self, opt=", ".join(["'" + str(s) + "'" for s in self.options])))
-        self._drop_type_command = RawSql("DROP TYPE IF EXISTS {s.name}".format(s=self))
-    
-    def __str__(self):
-        return "Enum(" + ", ".join([repr(o) for o in self.options]) + ")"
+    return method            
 
 
 class Queryable:
@@ -133,24 +180,14 @@ class Queryable:
         
         Queryable._use_own_overloads = use_own
 
+        
 
 class Property(Queryable):
-    default_sqltypes = {
-        int: "INT",
-        str: "VARCHAR",
-        float: "DOUBLE PRECISION",
-        bool: "BOOL",
-        datetime.datetime: "TIMESTAMP"  # but consider perhaps amount of milliseconds since UNIX epoch
-    }
-    
-    def __init__(self, typ, sql_type: str = None, constraint: types.FunctionType = None, sql_extra: str = "", 
+    def __init__(self, typ, constraint: types.FunctionType = None, sql_extra: str = "", 
                  required: bool = True, json: bool = True):
-        if isinstance(typ, Enum):
-            sql_type = ""
-        elif sql_type is None:
-            sql_type = Property.default_sqltypes[typ]
+        if not isinstance(typ, Type):
+            typ = Type(typ)
         self.type = typ
-        self.sql_type = sql_type
         self.constraint = constraint
         self.sql_extra = sql_extra
         self.required = required
@@ -161,14 +198,13 @@ class Property(Queryable):
     
     def __postinit__(self):
         self.__postinited__ = True
-        if isinstance(self.type, Enum):
-            self.sql_type = self.type.name
+        # ...
     
     def sql_def(self):
         return "\t" + self.name + " " + self.type_sql_def()
     
     def type_sql_def(self):
-        return self.sql_type + (" " + self.sql_extra if self.sql_extra != "" else "") + (" NOT NULL" if self.required else "")
+        return self.type.sql_type + (" " + self.sql_extra if self.sql_extra != "" else "") + (" NOT NULL" if self.required else "")
     
     def __str__(self):
         return self.cls._table_name + "." + self.name
@@ -248,7 +284,7 @@ class KeyProperty(SingleKey, Property):
     Type in postgres is SERIAL.
     """
     def __init__(self):
-        Property.__init__(self, int, sql_type="SERIAL", required=False)
+        Property.__init__(self, Type(int, "SERIAL"), required=False)
         self.single_prop = self
     
     def __postinit__(self):
@@ -284,7 +320,7 @@ class Reference(Queryable):
         self.__postinited__ = True
         self.props = []
         for rp in self.ref_props:
-            p = Property(rp.type, rp.sql_type if not rp.sql_type == "SERIAL" else "INT", json=self.json)
+            p = Property(Type(rp.type.python_type, rp.type.sql_type if not rp.type.sql_type == "SERIAL" else None), json=self.json)
             p.cls = rp.cls
             p.name = self.name + "_" + rp.name
             p.dataname = self.name + "_" + rp.dataname

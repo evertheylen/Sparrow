@@ -741,9 +741,9 @@ class Entity(metaclass=MetaEntity):
                 raise ObjectConstraintFail(self)
 
     @classmethod
-    def raw(cls: MetaEntity, text: str) -> RawSql:
+    def raw(cls: MetaEntity, text: str, dct={}) -> RawSql:
         """Return a RawSql where the results will be interpreted as objects of `cls`."""
-        return RawClassedSql(cls, text)
+        return RawClassedSql(cls, text, dct)
     
     @classmethod
     def get(cls: MetaEntity, *where_clauses: list) -> Sql:

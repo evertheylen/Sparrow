@@ -440,7 +440,7 @@ class EntityCommand(Command):
 class Insert(EntityCommand):
     """For INSERT statements."""
     
-    def __init__(self, what, returning=None):
+    def __init__(self, what, returning=None, replace=False):
         """
         Parameters:
             - `what`: Either an instance of an `Entity` or a subclass of `Entity`.
@@ -449,6 +449,7 @@ class Insert(EntityCommand):
         
         EntityCommand.__preinit__(self, what)
         self._returning = self.check(returning)
+        self._replace = replace
         Command.__init__(self, self.cls)
     
     def returning(self, prop):  # TODO return multiple attributes?
@@ -462,6 +463,10 @@ class Insert(EntityCommand):
             props = ", ".join([p.name for p in self.cls._complete_props]),
             vals = ", ".join(["%("+p.name+")s" for p in self.cls._complete_props])
         )
+        if self._replace:
+            s += " ON CONFLICT ({keys}) DO UPDATE SET {vals}".format(
+                keys = ", ".join([k.name for k in self.cls.key.referencing_props()]),
+                vals = ", ".join(["{0} = EXCLUDED.{0}".format(p.name) for p in self.cls._props]))
         if self._returning is not None:
             s += " RETURNING " + str(self._returning)
         return s

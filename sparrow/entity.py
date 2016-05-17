@@ -64,7 +64,7 @@ class CantSetProperty(Error):
 # ==========
 
 default_sqltypes = {
-    int: "INT",
+    int: "BIGINT",
     str: "VARCHAR",
     float: "DOUBLE PRECISION",
     bool: "BOOL",
@@ -80,10 +80,10 @@ class Type:
             self.python_type = python_type
             self.sql_type = default_sqltypes[python_type]
     
-    def to_sql(obj: "self.python_type"):
-        return str(obj)
+    def to_sql(self, obj: "self.python_type"):
+        return obj
     
-    def from_sql(obj):
+    def from_sql(self, obj):
         return obj
     
     def __str__(self):
@@ -98,7 +98,7 @@ class List(Type):
         self.inner_type = inner_type
         self.sql_type = inner_type.sql_type + "[]"
     
-    def to_sql(obj: "self.python_type", f=lambda o: str(o)):
+    def to_sql(self, obj: "self.python_type", f=lambda o: repr(o)):
         return "{" + ", ".join([f(o) for o in obj]) + "}"
     
     def __str__(self):
@@ -115,7 +115,7 @@ class Enum(Type):
         self.__postinited__ = True
         self._create_type_command = RawSql("CREATE TYPE {s.name} AS ENUM ({opt})".format(
             s=self, opt=", ".join(["'" + str(s) + "'" for s in self.options])))
-        self._drop_type_command = RawSql("DROP TYPE IF EXISTS {s.name}".format(s=self))
+        self._drop_type_command = RawSql("DROP TYPE IF EXISTS {s.name} CASCADE".format(s=self))
         self.sql_type = self.name
     
     def __str__(self):
@@ -461,11 +461,11 @@ class MetaEntity(type):
         
         # TODO test inheritance?
         all_items = list(classitems(dct, bases))
-        full_dct = dict(all_items)  # unordered
-        ordered_props = [k for (k, v) in all_items
+        full_dct = collections.OrderedDict(all_items)
+        ordered_props = [k for (k, v) in full_dct.items()
                 if isinstance(v, Property) and not k == "key"]
         
-        ordered_refs = [k for (k, v) in all_items
+        ordered_refs = [k for (k, v) in full_dct.items()
                 if isinstance(v, Reference)]
         
         if not("__no_meta__" in dct and dct["__no_meta__"]):
@@ -533,7 +533,7 @@ class MetaEntity(type):
                     obj.in_db = True
                     start = 0
                     for (i, (p, constrained)) in enumerate(init_properties):
-                        val = db_args[i]
+                        val = p.type.from_sql(db_args[i])
                         if constrained and (not p.constraint(val)):
                             raise PropertyConstraintFail(obj, p)
                         obj.__dict__[p.dataname] = val
@@ -622,8 +622,10 @@ class MetaEntity(type):
             cls._drop_table_command = DropTable(cls).to_raw()
             if cls._incomplete:
                 cls._insert_command = Insert(cls, returning=cls.key).to_raw()
+                cls._replace_command = Insert(cls, returning=cls.key, replace=True).to_raw()
             else:
                 cls._insert_command = Insert(cls).to_raw()
+                cls._replace_command = Insert(cls, replace=True).to_raw()
             cls._update_command = Update(cls).to_raw()
             cls._delete_command = Delete(cls).to_raw()
             cls._find_by_key_query = Select(cls, [cls.key == Field("key")])
@@ -659,26 +661,32 @@ class Entity(metaclass=MetaEntity):
     def __init__(self, *args, **kwargs):
         self.__metainit__(*args, **kwargs)
     
-    async def insert(self, db: Database):
+    async def insert(self, db: Database, replace=False):
         """Insert in database."""
         
         if self.key is None:
             assert type(self)._incomplete
-            await self._simple_insert(db)
+            await self._simple_insert(db, replace)
             assert self.key is not None
-            assert self.key not in type(self).cache
+            if not replace:
+                assert self.key not in type(self).cache, "Tried inserting but already in cache!"
             type(self).cache[self.key] = self
+            # In case of replace, this kinda invalidates some elements
+            # So be careful with replace!
         else:
-            await self._simple_insert(db)
+            await self._simple_insert(db, replace)
     
-    async def _simple_insert(self, db: Database):
+    async def _simple_insert(self, db: Database, replace=False):
         self.check()
         assert not self.in_db
         cls = type(self)
         dct = {}
         for p in self._complete_props:
-            dct[p.name] = self.__dict__[p.dataname]
-        insert = cls._insert_command.with_data(**dct)
+            dct[p.name] = p.type.to_sql(self.__dict__[p.dataname])
+        if replace:
+            insert = cls._replace_command.with_data(**dct)
+        else:
+            insert = cls._insert_command.with_data(**dct)
         if cls._incomplete:
             result = await insert.raw(db)
             self.__dict__[cls.key.dataname] = result[0]

@@ -618,6 +618,7 @@ class MetaEntity(type):
             if isinstance(cls.key, Property):
                 cls.key.cls = cls
             
+            cls._select_props = ", ".join([p.name for p in cls._props])
             cls._create_table_command = CreateTable(cls).to_raw()
             cls._drop_table_command = DropTable(cls).to_raw()
             if cls._incomplete:
@@ -629,7 +630,6 @@ class MetaEntity(type):
             cls._update_command = Update(cls).to_raw()
             cls._delete_command = Delete(cls).to_raw()
             cls._find_by_key_query = Select(cls, [cls.key == Field("key")])
-                    
             
             # FANCYYYY
             cls.cache = weakref.WeakValueDictionary()

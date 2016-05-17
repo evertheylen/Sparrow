@@ -372,7 +372,7 @@ class Select(ClassedSql):
         return self
     
     def __str__(self):
-        s = "SELECT * FROM {cls._table_name}".format(cls=self.cls)
+        s = "SELECT {props} FROM {cls._table_name}".format(cls=self.cls, props=self.cls._select_props)
         if len(self.where_clauses) > 0:
             s += " WHERE " + " AND ".join(["("+str(c)+")" for c in self.where_clauses])
         if self._order is not None:

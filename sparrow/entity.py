@@ -618,7 +618,7 @@ class MetaEntity(type):
             if isinstance(cls.key, Property):
                 cls.key.cls = cls
             
-            cls._select_props = ", ".join([p.name for p in itertools.chain(init_properties, init_raw_ref_properties)])
+            cls._select_props = ", ".join([p.name for p in itertools.chain([p for p, c in init_properties], init_raw_ref_properties)])
             cls._create_table_command = CreateTable(cls).to_raw()
             cls._drop_table_command = DropTable(cls).to_raw()
             if cls._incomplete:

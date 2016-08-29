@@ -68,8 +68,9 @@ default_sqltypes = {
     str: "VARCHAR",
     float: "DOUBLE PRECISION",
     bool: "BOOL",
-    datetime.datetime: "TIMESTAMP"  # but consider perhaps amount of seconds since UNIX epoch
+    datetime.datetime: "TIMESTAMP",  # but consider perhaps amount of seconds since UNIX epoch
 }
+
 
 class Type:        
     def __init__(self, python_type, sql_type=None):
@@ -86,9 +87,24 @@ class Type:
     def from_sql(self, obj):
         return obj
     
+    constraint = None
+    
     def __str__(self):
         return "Type({}, {})".format(str(self.python_type), self.sql_type)
 
+class StaticType(Type):
+    pass
+
+class _Json(StaticType):
+    @staticmethod
+    def to_sql(obj):
+        return json.dumps(obj)
+    
+    @staticmethod
+    def from_sql(obj):
+        return json.loads(obj)
+
+Json = _Json(str)
 
 class List(Type):
     def __init__(self, inner_type):
@@ -98,7 +114,7 @@ class List(Type):
         self.inner_type = inner_type
         self.sql_type = inner_type.sql_type + "[]"
     
-    def to_sql(self, obj: "self.python_type", f=lambda o: repr(o)):
+    def to_sql(self, obj: "self.python_type", f=repr):
         return "{" + ", ".join([f(o) for o in obj]) + "}"
     
     def __str__(self):
@@ -110,6 +126,12 @@ class Enum(Type):
         self.options = args
         self.inv_options = {val: num for num, val in enumerate(self.options)}
         self.python_type = str
+    
+    @property
+    def constraint(self):
+        def _constraint(val, _self=self):
+            return val in self.options
+        return _constraint
     
     def __postinit__(self):
         self.__postinited__ = True
@@ -185,9 +207,15 @@ class Queryable:
 class Property(Queryable):
     def __init__(self, typ, constraint: types.FunctionType = None, sql_extra: str = "", 
                  required: bool = True, json: bool = True):
-        if not isinstance(typ, Type):
+        if not isinstance(typ, (Type, StaticType)):
             typ = Type(typ)
         self.type = typ
+        if self.type.constraint is not None:
+            if constraint is None:
+                constraint = self.type.constraint
+            else:
+                constraint = lambda val: self.type.constraint(val) and constraint(val)
+        
         self.constraint = constraint
         self.sql_extra = sql_extra
         self.required = required
@@ -540,7 +568,7 @@ class MetaEntity(type):
                     for (i, p) in enumerate(init_raw_ref_properties, len(init_properties)):
                         obj.__dict__[p.dataname] = db_args[i]
                 elif json_dict is not None:
-                    used = set()
+                    #used = set()
                     obj.in_db = False
                     # Init from a (more raw) dictionary, possibly unsafe
                     for (p, constrained) in init_properties:
@@ -652,7 +680,7 @@ class MetaEntity(type):
 
 class Entity(metaclass=MetaEntity):
     """Central class for an Entity.
-    NOTE: Be careful with changing the key as it will fuck with caching.
+    WARNING: Be careful with changing the key as it will fuck with caching.
     Basically, don't do it.
     """
     
@@ -661,8 +689,10 @@ class Entity(metaclass=MetaEntity):
     def __init__(self, *args, **kwargs):
         self.__metainit__(*args, **kwargs)
     
-    async def insert(self, db: Database, replace=False):
+    async def insert(self, db: Database = None, replace=False):
         """Insert in database."""
+        if db is None:
+            db = GlobalDb.get()
         
         if self.key is None:
             assert type(self)._incomplete
@@ -676,7 +706,9 @@ class Entity(metaclass=MetaEntity):
         else:
             await self._simple_insert(db, replace)
     
-    async def _simple_insert(self, db: Database, replace=False):
+    async def _simple_insert(self, db: Database = None, replace=False):
+        if db is None:
+            db = GlobalDb.get()
         self.check()
         assert not self.in_db
         cls = type(self)
@@ -701,9 +733,10 @@ class Entity(metaclass=MetaEntity):
             if val in rt_ref.ref.cache:
                 rt_ref.ref.cache[val].new_reference(rt_ref, self)
     
-    async def update(self, db):
+    async def update(self, db=None):
         """Update object in the database."""
-        
+        if db is None:
+            db = GlobalDb.get()
         self.check()
         assert self.in_db
         dct = {}
@@ -714,9 +747,10 @@ class Entity(metaclass=MetaEntity):
         await type(self)._update_command.with_data(**dct).exec(db)
     
     
-    async def delete(self, db):
+    async def delete(self, db=None):
         """Delete object from the database."""
-        
+        if db is None:
+            db = GlobalDb.get()
         assert self.in_db
         dct = {}
         for p in type(self).key.referencing_props():
@@ -750,8 +784,11 @@ class Entity(metaclass=MetaEntity):
         return Select(cls, where_clauses)
     
     @classmethod
-    async def find_by_key(cls: MetaEntity, key, db: Database) -> "cls":
+    async def find_by_key(cls: MetaEntity, key, db: Database = None) -> "cls":
         """Works different from `get`, as it will immediatly return the object"""
+        if db is None:
+            db = GlobalDb.get()
+        
         try:
             return cls.cache[key]
         except KeyError:
@@ -817,17 +854,24 @@ class RTEntity(Entity):
         self._listeners = set()
         super(RTEntity, self).__init__(*args, **kwargs)
     
-    async def update(self, db: Database):
+    async def update(self, db: Database = None):
+        if db is None:
+            db = GlobalDb.get()
+            
         await super(RTEntity, self).update(db)
         for l in self._listeners:
             l.update(self)
     
-    def send_update(self, db):
+    def send_update(self, db = None):
+        if db is None:
+            db = GlobalDb.get()
         """To manually send messages to all listeners. Won't save to database."""
         for l in self._listeners:
             l.update(self)
     
-    async def delete(self, db):
+    async def delete(self, db = None):
+        if db is None:
+            db = GlobalDb.get()
         await super(RTEntity, self).delete(db)
         for l in self._listeners:
             l.delete(self)

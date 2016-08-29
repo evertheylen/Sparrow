@@ -1,10 +1,4 @@
 
-
-"""
-
-
-"""
-
 from functools import wraps
 import copy
 
@@ -45,18 +39,40 @@ class Database:
             dbname=dbname, user=user, password=password, host=host, port=port)
         self.pdb = momoko.Pool(dsn=dsn, size=momoko_poolsize, ioloop=ioloop)
         self.pdb.connect()
+    
 
     async def get_cursor(self, statement: "Sql", unsafe_dict: dict):
         statement = str(statement)
         cursor = await self.pdb.execute(statement, unsafe_dict)
         return cursor
 
+class GlobalDb:
+    db = None
+    
+    @classmethod
+    def get(cls):
+        return cls.db
+    
+    @classmethod
+    def set(cls, db):
+        cls.db = db
+    
+    @classmethod
+    def globalize(cls, db):
+        if db is not None:
+            return cls.db
 
 # Helper classes for building a query
 # -----------------------------------
 
 class Unsafe:
     """Wrapper for unsafe data. (For data that needs to inserted later, use Field.)"""
+    
+    def __new__(typ, val, *args, **kwargs):
+        if isinstance(val, Unsafe):
+            return val
+        obj = object.__new__(typ, *args, **kwargs)
+        return obj
     
     def __init__(self, value):
         self.key = str(id(self))
@@ -140,7 +156,9 @@ class SqlResult:
 
 def _wrapper_sqlresult(method):
     @wraps(method)
-    async def wrapper(self, db: Database, *args, **kwargs):
+    async def wrapper(self, db: Database = None, *args, **kwargs):
+        if db is None:
+            db = GlobalDb.get()
         result = await self.exec(db)
         return method(result, *args, **kwargs)
     wrapper.__doc__ += "\n\nWrapped version, first argument is the database."
@@ -162,8 +180,10 @@ class Sql:
     # By default, there is no class
     cls = None
     
-    async def exec(self, db: Database):
+    async def exec(self, db: Database = None):
         """Execute the SQL statement on the given database."""
+        if db is None:
+            db = GlobalDb.get()
         try:
             return SqlResult(await db.get_cursor(str(self), self.data), self)
         except psycopg2.Error as e:

@@ -24,12 +24,14 @@ class SparrowModel:
     """
     The central class that keeps everything together.
     """
-    def __init__(self, ioloop, db_args, classes, debug=True, db=None):
+    def __init__(self, ioloop, db_args, classes, debug=True, db=None, set_global_db=False):
         self.ioloop = ioloop
         if db is not None:
             self.db = db
         else:
             self.db = Database(ioloop, **db_args)
+            if set_global_db:
+                GlobalDb.set(self.db)
         self.classes = classes
         self.debug = debug
         

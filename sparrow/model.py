@@ -110,7 +110,7 @@ class SparrowModel:
                 print(indent(json.dumps(d, indent=4)))
             else:
                 print("Definition is custom!")
-                if hasattr(c.json_repr, "__doc__"):
+                if hasattr(c.json_repr, "__doc__") and c.json_repr.__doc__ is not None:
                     print("The documentation says:\n\n" + indent(c.json_repr.__doc__, code=False))
                 possible_for = True
             

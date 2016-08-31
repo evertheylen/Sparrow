@@ -100,11 +100,11 @@ class _Json(StaticType):
     def to_sql(obj):
         return json.dumps(obj)
     
-    @staticmethod
-    def from_sql(obj):
-        return json.loads(obj)
+    #@staticmethod
+    #def from_sql(obj):
+        #return json.loads(obj)
 
-Json = _Json(str)
+Json = _Json(str, "JSONB")
 
 class List(Type):
     def __init__(self, inner_type):
@@ -741,7 +741,7 @@ class Entity(metaclass=MetaEntity):
         assert self.in_db
         dct = {}
         for p in self._complete_props:
-            dct[p.name] = self.__dict__[p.dataname]
+            dct[p.name] = p.type.to_sql(self.__dict__[p.dataname])
         if type(self)._incomplete:
             dct[type(self).key.name] = self.__dict__[type(self).key.dataname]
         await type(self)._update_command.with_data(**dct).exec(db)

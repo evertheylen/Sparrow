@@ -17,3 +17,9 @@ Author: Evert Heylen
 ## Documentation
 
 [![Documentation Status](https://readthedocs.org/projects/sparrow/badge/?version=latest)](http://sparrow.readthedocs.org/en/latest/?badge=latest)
+
+
+## License
+
+The project is licensed under the MIT License.
+

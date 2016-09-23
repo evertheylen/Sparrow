@@ -1,5 +1,7 @@
 # Sparrow
 
+[![Join the chat at https://gitter.im/SparrowChat/Lobby](https://badges.gitter.im/SparrowChat/Lobby.svg)](https://gitter.im/SparrowChat/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 Single Page Application Real-time Relational Object Wrapper.
 
 It doesn't have to be used for a SPA, but it has JSON support out of the box to send objects inside messages (I personally prefer websockets).
